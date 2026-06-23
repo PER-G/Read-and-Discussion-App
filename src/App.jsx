@@ -13,7 +13,8 @@ import Login from './Login.jsx'
 import Library from './Library.jsx'
 import { useTTS } from './useTTS.js'
 import { useSpeech } from './useSpeech.js'
-import { stripMarkdown } from './textUtils.js'
+import { stripMarkdown, isSkippableChapter } from './textUtils.js'
+import VoiceSettings from './VoiceSettings.jsx'
 
 // Sehr leichter Markdown-Renderer (fett, Überschriften, Listen, Absätze).
 function renderMarkdown(md) {
@@ -54,6 +55,18 @@ function renderMarkdown(md) {
   return blocks
 }
 
+// Technische Fehlermeldungen in verständliches Deutsch übersetzen.
+function friendlyError(msg) {
+  const m = (msg || '').toLowerCase()
+  if (m.includes('529') || m.includes('overloaded'))
+    return 'Der KI-Dienst ist gerade überlastet. Bitte in ein paar Sekunden erneut versuchen.'
+  if (m.includes('429') || m.includes('rate'))
+    return 'Zu viele Anfragen in kurzer Zeit. Bitte kurz warten und erneut versuchen.'
+  if (m.includes('401') || m.includes('autoris'))
+    return 'Sitzung abgelaufen. Bitte neu anmelden.'
+  return msg
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [authed, setAuthed] = useState(false)
@@ -72,6 +85,7 @@ export default function App() {
   // Studio
   const [summary, setSummary] = useState('')
   const [summarizing, setSummarizing] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
   const [quiz, setQuiz] = useState([])
   const [quizLoading, setQuizLoading] = useState(false)
 
@@ -170,6 +184,7 @@ export default function App() {
   function openDoc(project) {
     setDoc(project)
     setSummary(project.summary || '')
+    setSummaryError('')
     setQuiz([])
     setMessages([])
     setActiveChapter(project.progress?.chapterIndex || 0)
@@ -203,6 +218,7 @@ export default function App() {
 
   async function runSummary(d) {
     setSummarizing(true)
+    setSummaryError('')
     try {
       const s = await summarize(d)
       setSummary(s)
@@ -213,7 +229,7 @@ export default function App() {
         if (fresh) await saveProject({ ...fresh, summary: s, updatedAt: Date.now() })
       }
     } catch (e) {
-      if (!handleAuthErr(e)) setError(e.message)
+      if (!handleAuthErr(e)) setSummaryError(friendlyError(e.message))
     } finally {
       setSummarizing(false)
     }
@@ -287,7 +303,7 @@ export default function App() {
       if (handleAuthErr(e)) return
       setMessages((m) => {
         const copy = m.slice()
-        copy[copy.length - 1] = { role: 'assistant', content: '⚠ Fehler: ' + e.message }
+        copy[copy.length - 1] = { role: 'assistant', content: '⚠ ' + friendlyError(e.message) }
         return copy
       })
     } finally {
@@ -388,17 +404,20 @@ export default function App() {
             </div>
 
             <div className="chapter-list">
-              {doc.chapters.map((c, i) => (
-                <button
-                  key={i}
-                  className={'chapter-item' + (i === activeChapter ? ' active' : '')}
-                  onClick={() => openReader(i)}
-                  title="Dieses Kapitel vorlesen"
-                >
-                  <span className="num">{i + 1}</span>
-                  <span className="ct">{c.title}</span>
-                </button>
-              ))}
+              {doc.chapters.map((c, i) => {
+                const skip = isSkippableChapter(c)
+                return (
+                  <button
+                    key={i}
+                    className={'chapter-item' + (i === activeChapter ? ' active' : '') + (skip ? ' skip' : '')}
+                    onClick={() => openReader(i)}
+                    title={skip ? 'Verzeichnis — wird beim Vorlesen übersprungen' : 'Dieses Kapitel vorlesen'}
+                  >
+                    <span className="num">{skip ? '🗂' : i + 1}</span>
+                    <span className="ct">{c.title}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -499,8 +518,28 @@ export default function App() {
               <h3>📝 Zusammenfassung</h3>
               {summarizing ? (
                 <p><span className="spinner" /> Wird erstellt …</p>
+              ) : summaryError ? (
+                <>
+                  <div className="banner" style={{ marginBottom: 10 }}>⚠ {summaryError}</div>
+                  <button className="btn full" onClick={() => runSummary(doc)}>↻ Erneut versuchen</button>
+                </>
               ) : summary ? (
-                <div className="summary-box">{renderMarkdown(summary)}</div>
+                <>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {chatTts.supported && (
+                      <button className="btn" onClick={() => speakMessage(summary)}>
+                        {chatTts.speaking ? '⏹ Stopp' : '🔊 Vorlesen'}
+                      </button>
+                    )}
+                    <button className="btn ghost" onClick={() => runSummary(doc)}>↻ Neu</button>
+                  </div>
+                  <div className="summary-box">{renderMarkdown(summary)}</div>
+                  {chatTts.supported && (
+                    <div style={{ marginTop: 10 }}>
+                      <VoiceSettings tts={chatTts} showPitch={false} />
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <p>Noch keine Zusammenfassung.</p>

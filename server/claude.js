@@ -11,7 +11,8 @@ function getClient() {
     )
   }
   if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    // maxRetries fängt kurzfristige Überlastung (429/529/5xx) automatisch ab.
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 4 })
   }
   return client
 }

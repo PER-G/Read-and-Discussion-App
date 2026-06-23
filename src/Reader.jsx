@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useTTS } from './useTTS.js'
 import { useSpeech } from './useSpeech.js'
 import { summarizeChapter, streamChat } from './api.js'
-import { stripMarkdown } from './textUtils.js'
+import { stripMarkdown, isSkippableChapter } from './textUtils.js'
+import VoiceSettings from './VoiceSettings.jsx'
 
 // Vorlese-Overlay: liest das aktuelle Kapitel kapitelweise vor.
 // - stoppt die Sprachausgabe zuverlässig beim Schließen
@@ -84,6 +85,24 @@ export default function Reader({
     setIndex(i)
   }
 
+  // Nächstes/voriges INHALTS-Kapitel finden (Verzeichnisse überspringen).
+  const findContent = (from, step) => {
+    let i = from
+    while (i >= 0 && i < chapters.length) {
+      if (!isSkippableChapter(chapters[i])) return i
+      i += step
+    }
+    return -1
+  }
+  const goContent = (from, step) => {
+    const i = findContent(from, step)
+    if (i >= 0) goTo(i)
+  }
+
+  const skippable = isSkippableChapter(chapter)
+  const nextContent = findContent(index + 1, 1)
+  const prevContent = findContent(index - 1, -1)
+
   // KI: Kapitel zusammenfassen und vorlesen.
   const summarizeNow = async () => {
     if (!chapter || summarizing) return
@@ -136,7 +155,6 @@ export default function Reader({
     }
   }
 
-  const hasNext = index < chapters.length - 1
   const hasResume = resumeRef.current > 0 && !tts.speaking
 
   return (
@@ -175,6 +193,13 @@ export default function Reader({
             <div className="interim">„{speech.interim}"</div>
           )}
           {aiError && <div className="banner" style={{ marginBottom: 12 }}>{aiError}</div>}
+
+          {skippable && (
+            <div className="banner" style={{ marginBottom: 12 }}>
+              🗂 Das sieht nach einem Verzeichnis aus (z. B. Inhalts-/Abbildungsverzeichnis).
+              Beim Weiterlesen wird es übersprungen — du kannst es hier aber trotzdem vorlesen lassen.
+            </div>
+          )}
 
           {chapterSummary && (
             <div className="ai-panel">
@@ -224,15 +249,15 @@ export default function Reader({
           {finished ? (
             <div className="next-prompt">
               <span className="q">✅ Kapitel vorgelesen. Weiter zum nächsten Kapitel oder Fragen?</span>
-              {hasNext && (
-                <button className="btn primary" onClick={() => goTo(index + 1)}>▶ Nächstes Kapitel</button>
+              {nextContent >= 0 && (
+                <button className="btn primary" onClick={() => goTo(nextContent)}>▶ Nächstes Kapitel</button>
               )}
               <button className="btn" onClick={() => onAskQuestions(index)}>💬 Im Chat fragen</button>
               <button className="btn ghost" onClick={startReading}>↻ Nochmal</button>
             </div>
           ) : (
             <div className="controls-row">
-              <button className="iconbtn" onClick={() => goTo(index - 1)} disabled={index === 0} title="Vorheriges Kapitel">⏮</button>
+              <button className="iconbtn" onClick={() => goContent(index - 1, -1)} disabled={prevContent < 0} title="Vorheriges Kapitel">⏮</button>
               {!tts.speaking ? (
                 <button className="iconbtn big" onClick={startReading} disabled={!chapter || !tts.supported} title={hasResume ? 'Weiterlesen' : 'Vorlesen'}>▶</button>
               ) : tts.paused ? (
@@ -241,27 +266,14 @@ export default function Reader({
                 <button className="iconbtn big" onClick={tts.pause} title="Pause">⏸</button>
               )}
               {tts.speaking && <button className="iconbtn" onClick={tts.stop} title="Stopp">⏹</button>}
-              <button className="iconbtn" onClick={() => goTo(index + 1)} disabled={!hasNext} title="Nächstes Kapitel">⏭</button>
+              <button className="iconbtn" onClick={() => goContent(index + 1, 1)} disabled={nextContent < 0} title="Nächstes Kapitel">⏭</button>
               <span className="grow" />
               {hasResume && <span style={{ fontSize: 12, color: 'var(--muted)' }}>↩ ab gespeicherter Stelle</span>}
               <button className="btn" onClick={() => onAskQuestions(index)}>💬 Chat</button>
             </div>
           )}
 
-          <div className="voice-row">
-            <span>🎙 Stimme:</span>
-            <select value={tts.voiceURI || ''} onChange={(e) => tts.setVoiceURI(e.target.value)}>
-              {tts.voices.map((v) => (
-                <option key={v.voiceURI} value={v.voiceURI}>
-                  {v.lang?.toLowerCase().startsWith('de') ? '🇩🇪 ' : ''}{v.name} ({v.lang})
-                </option>
-              ))}
-            </select>
-            <span>Tempo {tts.rate.toFixed(1)}×</span>
-            <input type="range" min="0.6" max="1.6" step="0.1" value={tts.rate} onChange={(e) => tts.setRate(Number(e.target.value))} />
-            <span>Tonhöhe</span>
-            <input type="range" min="0.6" max="1.4" step="0.1" value={tts.pitch} onChange={(e) => tts.setPitch(Number(e.target.value))} />
-          </div>
+          <VoiceSettings tts={tts} />
         </div>
       </div>
     </div>

@@ -154,6 +154,8 @@ button {
   display: grid; place-items: center; font-size: 11px; color: var(--muted);
 }
 .chapter-item .ct { font-size: 13px; line-height: 1.3; }
+.chapter-item.skip { opacity: 0.55; }
+.chapter-item.skip .ct { font-style: italic; }
 
 /* ---------- Chat ---------- */
 .chat-wrap { display: flex; flex-direction: column; height: 100%; }
