@@ -1,0 +1,16 @@
+# Render.com Blueprint — 1-Klick-Deploy als Web-App.
+# Render baut das Frontend und startet den Express-Server, der das Frontend
+# UND die API über einen Port ausliefert. Der API-Key wird als geheime
+# Umgebungsvariable im Render-Dashboard gesetzt (NICHT im Code/Repo!).
+services:
+  - type: web
+    name: read-and-discussion-app
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false          # -> wird im Render-Dashboard als Secret gesetzt
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-4-6
