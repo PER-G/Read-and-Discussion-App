@@ -55,6 +55,13 @@ npm run dev
 Die App braucht einen Node-Server (für den geheimen API-Key), daher funktioniert
 reines GitHub Pages **nicht**. Empfohlen: **Render.com** (Free-Tier).
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PER-G/Read-and-Discussion-App)
+
+Mit dem Button oben: anmelden, GitHub verbinden, beim Schritt **Environment**
+den `ANTHROPIC_API_KEY` eintragen → **Deploy**. Fertig.
+
+Oder manuell:
+
 1. Code zu GitHub pushen (siehe Repo `PER-G/Read-and-Discussion-App`).
 2. Auf https://render.com mit GitHub anmelden → **New → Blueprint**.
 3. Repo auswählen — Render liest `render.yaml` automatisch.
