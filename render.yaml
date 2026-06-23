@@ -12,5 +12,11 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false          # -> wird im Render-Dashboard als Secret gesetzt
+      - key: AUTH_USER
+        sync: false          # Login-Benutzername
+      - key: AUTH_PASS
+        sync: false          # Login-Passwort
+      - key: AUTH_SECRET
+        generateValue: true  # Render erzeugt automatisch ein zufälliges Secret
       - key: CLAUDE_MODEL
         value: claude-sonnet-4-6

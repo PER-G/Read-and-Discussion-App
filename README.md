@@ -12,6 +12,9 @@ lassen → **kapitelweise vorlesen** (Browser-Stimme) → mit der KI **diskutier
   - Nach jedem Kapitel: *„Weiter zum nächsten Kapitel oder Fragen?"*
 - 💬 **Diskussion**: Fragen an die KI stellen (mit Dokumentkontext, gestreamt)
 - ❓ **Frage-Runde**: die KI fragt **dich** ab und gibt Feedback — oder erzeugt eine Liste Übungsfragen
+- 🔒 **Login-Schutz**: Benutzername + Passwort schützen die App und den API-Key.
+  Geprüft wird **server-seitig**; alle KI-Endpunkte verlangen ein gültiges, signiertes
+  Token (HMAC). Zugangsdaten liegen nur als Umgebungsvariablen vor, nie im Code.
 
 ## Einrichtung
 
@@ -62,8 +65,15 @@ Server für den geheimen API-Key).
    `PER-G/Read-and-Discussion-App` importieren.
 2. Vercel erkennt Vite automatisch. Unter **Environment Variables** eintragen:
    - `ANTHROPIC_API_KEY` = dein Key (Secret)
+   - `AUTH_USER` = Benutzername fürs Login
+   - `AUTH_PASS` = Passwort fürs Login
+   - `AUTH_SECRET` = langer zufälliger String (signiert die Login-Tokens)
    - optional `CLAUDE_MODEL` = `claude-sonnet-4-6`
 3. **Deploy** klicken. Die `vercel.json` richtet die API-Function automatisch ein.
+
+> ⚠️ **Wichtig:** Ohne `AUTH_USER`/`AUTH_PASS` ist die App gesperrt (Login nicht möglich) —
+> das schützt deinen API-Key. `AUTH_SECRET` unbedingt setzen, sonst wirst du nach jedem
+> Server-Neustart abgemeldet.
 
 > Hinweis: Der API-Aufruf läuft als Serverless-Function (`api/index.js`) mit bis zu
 > 60 s Laufzeit (in `vercel.json` gesetzt).

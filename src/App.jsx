@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { checkHealth, summarize, getQuiz, streamChat } from './api.js'
+import { checkHealth, summarize, getQuiz, streamChat, verifySession, clearToken, AuthError } from './api.js'
 import { parsePdfFile } from './pdfParse.js'
 import Reader from './Reader.jsx'
+import Login from './Login.jsx'
 
 // Sehr leichter Markdown-Renderer (fett, Überschriften, Listen, Absätze).
 function renderMarkdown(md) {
@@ -44,6 +45,8 @@ function renderMarkdown(md) {
 
 export default function App() {
   const [health, setHealth] = useState(null)
+  const [authed, setAuthed] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [doc, setDoc] = useState(null) // { title, numPages, charCount, chapters[], fullText }
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -71,7 +74,29 @@ export default function App() {
 
   useEffect(() => {
     checkHealth().then(setHealth).catch(() => setHealth({ ok: false }))
+    verifySession()
+      .then(setAuthed)
+      .catch(() => setAuthed(false))
+      .finally(() => setAuthChecked(true))
   }, [])
+
+  function logout() {
+    clearToken()
+    setAuthed(false)
+    setDoc(null)
+    setMessages([])
+    setSummary('')
+    setQuiz([])
+  }
+
+  // Bei abgelaufener Sitzung (401) zurück zum Login.
+  function handleAuthErr(e) {
+    if (e instanceof AuthError) {
+      setAuthed(false)
+      return true
+    }
+    return false
+  }
 
   useEffect(() => {
     if (messagesRef.current) {
@@ -109,7 +134,7 @@ export default function App() {
     try {
       setSummary(await summarize(d))
     } catch (e) {
-      setError(e.message)
+      if (!handleAuthErr(e)) setError(e.message)
     } finally {
       setSummarizing(false)
     }
@@ -121,7 +146,7 @@ export default function App() {
     try {
       setQuiz(await getQuiz(doc, 5))
     } catch (e) {
-      setError(e.message)
+      if (!handleAuthErr(e)) setError(e.message)
     } finally {
       setQuizLoading(false)
     }
@@ -169,6 +194,7 @@ export default function App() {
         }
       )
     } catch (e) {
+      if (handleAuthErr(e)) return
       setMessages((m) => {
         const copy = m.slice()
         copy[copy.length - 1] = { role: 'assistant', content: '⚠ Fehler: ' + e.message }
@@ -187,6 +213,20 @@ export default function App() {
 
   const keyOk = health?.hasKey
 
+  // Solange die Sitzung geprüft wird: kurzer Ladezustand.
+  if (!authChecked) {
+    return (
+      <div className="login-wrap">
+        <span className="spinner" />
+      </div>
+    )
+  }
+
+  // Nicht angemeldet -> Login-Maske.
+  if (!authed) {
+    return <Login health={health} onSuccess={() => setAuthed(true)} />
+  }
+
   return (
     <div className="app">
       <div className="topbar">
@@ -203,6 +243,9 @@ export default function App() {
           ) : (
             'Verbinde …'
           )}
+          <button className="btn ghost" style={{ marginLeft: 12 }} onClick={logout}>
+            Abmelden
+          </button>
         </div>
       </div>
 

@@ -1,7 +1,38 @@
 // Backend-Aufrufe. Das PDF wird im Browser geparst (siehe pdfParse.js);
-// hier schicken wir nur noch Texte an den zustandslosen Claude-Proxy.
+// hier schicken wir nur noch Texte an den geschützten Claude-Proxy.
 
-// Text begrenzen, damit die Payload an die Serverless-Function klein bleibt.
+const TOKEN_KEY = 'rad_token'
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || ''
+}
+export function setToken(t) {
+  if (t) localStorage.setItem(TOKEN_KEY, t)
+}
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders(extra = {}) {
+  const t = getToken()
+  return t ? { ...extra, Authorization: `Bearer ${t}` } : extra
+}
+
+// Bei 401 das Token verwerfen und Fehler werfen (Frontend zeigt dann Login).
+class AuthError extends Error {
+  constructor(msg) {
+    super(msg)
+    this.name = 'AuthError'
+  }
+}
+function handle401(r) {
+  if (r.status === 401) {
+    clearToken()
+    throw new AuthError('Sitzung abgelaufen — bitte erneut anmelden.')
+  }
+}
+
+// Text begrenzen, damit die Payload klein bleibt.
 function clip(text, max) {
   if (!text) return ''
   return text.length <= max ? text : text.slice(0, max) + '\n\n[... gekürzt ...]'
@@ -12,16 +43,42 @@ export async function checkHealth() {
   return r.json()
 }
 
+export async function login(username, password) {
+  const r = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(data.error || 'Login fehlgeschlagen')
+  setToken(data.token)
+  return true
+}
+
+// Prüfen, ob das gespeicherte Token noch gültig ist.
+export async function verifySession() {
+  if (!getToken()) return false
+  try {
+    const r = await fetch('/api/verify', { headers: authHeaders() })
+    if (r.ok) return true
+    clearToken()
+    return false
+  } catch {
+    return false
+  }
+}
+
 export async function summarize(doc) {
   const r = await fetch('/api/summarize', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       title: doc.title,
       chapterTitles: doc.chapters.map((c) => c.title),
       fullText: clip(doc.fullText, 120000),
     }),
   })
+  handle401(r)
   if (!r.ok) throw new Error((await r.json()).error || 'Zusammenfassung fehlgeschlagen')
   return (await r.json()).summary
 }
@@ -29,9 +86,10 @@ export async function summarize(doc) {
 export async function getQuiz(doc, count = 5) {
   const r = await fetch('/api/quiz', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ fullText: clip(doc.fullText, 120000), count }),
   })
+  handle401(r)
   if (!r.ok) throw new Error((await r.json()).error || 'Quiz fehlgeschlagen')
   return (await r.json()).questions
 }
@@ -40,9 +98,10 @@ export async function getQuiz(doc, count = 5) {
 export async function streamChat({ context, messages, mode }, onChunk) {
   const r = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ context: clip(context, 120000), messages, mode }),
   })
+  handle401(r)
   if (!r.ok) throw new Error((await r.json()).error || 'Chat fehlgeschlagen')
 
   const reader = r.body.getReader()
@@ -70,3 +129,5 @@ export async function streamChat({ context, messages, mode }, onChunk) {
     }
   }
 }
+
+export { AuthError }

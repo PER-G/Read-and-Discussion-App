@@ -251,6 +251,50 @@ select {
 
 .banner { background: #3a2a13; border: 1px solid #6b4e1f; color: #f0d9a8; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; margin-bottom: 12px; }
 
+/* ---------- Login ---------- */
+.login-wrap {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login-card {
+  width: min(380px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-logo {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  background: var(--accent);
+  display: grid; place-items: center;
+  font-size: 26px;
+  margin: 0 auto 4px;
+}
+.login-card h1 { font-size: 20px; text-align: center; margin: 0; }
+.login-sub { text-align: center; color: var(--muted); margin: 0 0 8px; font-size: 13px; }
+.login-card label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 12.5px; color: var(--muted);
+}
+.login-card input {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; font-size: 14px; font-family: inherit;
+}
+.login-card input:focus { outline: none; border-color: var(--accent-2); }
+.login-card .btn { margin-top: 6px; padding: 11px; }
+.login-error {
+  background: #3a1b1b; border: 1px solid #6b2f2f; color: #f0b8b8;
+  border-radius: 10px; padding: 9px 12px; font-size: 12.5px;
+}
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #38393b; border-radius: 8px; border: 2px solid var(--panel); }
 ::-webkit-scrollbar-track { background: transparent; }
