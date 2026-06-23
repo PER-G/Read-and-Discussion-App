@@ -2,23 +2,45 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useTTS } from './useTTS.js'
 
 // Vorlese-Overlay: liest das aktuelle Kapitel kapitelweise vor.
-// Nach jedem Kapitel erscheint die Frage "Weiter oder Fragen?".
-export default function Reader({ chapters, startIndex, onClose, onAskQuestions, onActiveChange }) {
+// - stoppt die Sprachausgabe zuverlässig beim Schließen
+// - merkt sich die Position (Kapitel + Satz) über onProgress
+// - kann an gespeicherter Stelle weiterlesen (startSentence)
+export default function Reader({
+  chapters,
+  startIndex,
+  startSentence = 0,
+  onClose,
+  onAskQuestions,
+  onProgress,
+}) {
   const tts = useTTS()
   const [index, setIndex] = useState(startIndex)
   const [finished, setFinished] = useState(false)
   const bodyRef = useRef(null)
   const spokenRef = useRef(null)
+  const resumeRef = useRef(startSentence || 0)
 
   const chapter = chapters[index]
 
-  // Beim Kapitelwechsel: Sprachausgabe stoppen, Eltern informieren.
+  // Sauberes Schließen: Audio stoppen, dann Overlay zu.
+  const handleClose = () => {
+    if (onProgress) onProgress(index, Math.max(0, tts.sentenceIndex))
+    tts.stop()
+    onClose()
+  }
+
+  // Beim Kapitelwechsel: Sprachausgabe stoppen.
   useEffect(() => {
     setFinished(false)
     tts.stop()
-    if (onActiveChange) onActiveChange(index)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index])
+
+  // Position laufend melden (zum Speichern des Fortschritts).
+  useEffect(() => {
+    if (onProgress) onProgress(index, Math.max(0, tts.sentenceIndex))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, tts.sentenceIndex])
 
   // Auto-Scroll zum gerade gesprochenen Satz.
   useEffect(() => {
@@ -30,19 +52,23 @@ export default function Reader({ chapters, startIndex, onClose, onAskQuestions, 
   const startReading = () => {
     if (!chapter) return
     setFinished(false)
-    tts.speak(chapter.text, () => setFinished(true))
+    const from = resumeRef.current
+    resumeRef.current = 0 // nur beim ersten Mal ab gespeicherter Stelle
+    tts.speak(chapter.text, () => setFinished(true), from)
   }
 
   const goTo = (i) => {
     if (i < 0 || i >= chapters.length) return
     tts.stop()
+    resumeRef.current = 0
     setIndex(i)
   }
 
   const hasNext = index < chapters.length - 1
+  const hasResume = resumeRef.current > 0 && !tts.speaking
 
   return (
-    <div className="reader-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="reader-backdrop" onMouseDown={(e) => e.target === e.currentTarget && handleClose()}>
       <div className="reader">
         <div className="reader-head">
           <div>
@@ -52,7 +78,7 @@ export default function Reader({ chapters, startIndex, onClose, onAskQuestions, 
               {chapter?.page ? ` · ab Seite ${chapter.page}` : ''}
             </div>
           </div>
-          <button className="btn ghost" onClick={onClose}>✕ Schließen</button>
+          <button className="btn ghost" onClick={handleClose}>✕ Schließen</button>
         </div>
 
         <div className="reader-body" ref={bodyRef}>
@@ -97,7 +123,7 @@ export default function Reader({ chapters, startIndex, onClose, onAskQuestions, 
               <button className="iconbtn" onClick={() => goTo(index - 1)} disabled={index === 0} title="Vorheriges Kapitel">⏮</button>
 
               {!tts.speaking ? (
-                <button className="iconbtn big" onClick={startReading} disabled={!chapter || !tts.supported} title="Vorlesen">▶</button>
+                <button className="iconbtn big" onClick={startReading} disabled={!chapter || !tts.supported} title={hasResume ? 'Weiterlesen' : 'Vorlesen'}>▶</button>
               ) : tts.paused ? (
                 <button className="iconbtn big" onClick={tts.resume} title="Fortsetzen">▶</button>
               ) : (
@@ -111,6 +137,7 @@ export default function Reader({ chapters, startIndex, onClose, onAskQuestions, 
               <button className="iconbtn" onClick={() => goTo(index + 1)} disabled={!hasNext} title="Nächstes Kapitel">⏭</button>
 
               <span className="grow" />
+              {hasResume && <span style={{ fontSize: 12, color: 'var(--muted)' }}>↩ liest ab gespeicherter Stelle</span>}
               <button className="btn" onClick={() => onAskQuestions(index)}>💬 Fragen</button>
             </div>
           )}
@@ -121,7 +148,7 @@ export default function Reader({ chapters, startIndex, onClose, onAskQuestions, 
             <select value={tts.voiceURI || ''} onChange={(e) => tts.setVoiceURI(e.target.value)}>
               {tts.voices.map((v) => (
                 <option key={v.voiceURI} value={v.voiceURI}>
-                  {v.name} ({v.lang})
+                  {v.lang?.toLowerCase().startsWith('de') ? '🇩🇪 ' : ''}{v.name} ({v.lang})
                 </option>
               ))}
             </select>

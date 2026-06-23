@@ -12,6 +12,9 @@ lassen → **kapitelweise vorlesen** (Browser-Stimme) → mit der KI **diskutier
   - Nach jedem Kapitel: *„Weiter zum nächsten Kapitel oder Fragen?"*
 - 💬 **Diskussion**: Fragen an die KI stellen (mit Dokumentkontext, gestreamt)
 - ❓ **Frage-Runde**: die KI fragt **dich** ab und gibt Feedback — oder erzeugt eine Liste Übungsfragen
+- 📚 **Projekte & Hauptmenü**: hochgeladene PDFs werden im Browser (IndexedDB) gespeichert,
+  lassen sich jederzeit wieder öffnen — inkl. **Lesefortschritt** (zuletzt gelesenes Kapitel
+  & Position). Speicherung pro Gerät/Browser.
 - 🔒 **Login-Schutz**: Benutzername + Passwort schützen die App und den API-Key.
   Geprüft wird **server-seitig**; alle KI-Endpunkte verlangen ein gültiges, signiertes
   Token (HMAC). Zugangsdaten liegen nur als Umgebungsvariablen vor, nie im Code.
