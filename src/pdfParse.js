@@ -4,9 +4,8 @@
 //   2. Überschriften-Heuristik
 //   3. Fallback: ein Kapitel
 import * as pdfjsLib from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+// Vite bündelt den pdf.js-Worker als echten Module-Worker (zuverlässig in Dev & Build).
+import PdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
 
 async function getPageText(page) {
   const content = await page.getTextContent()
@@ -84,35 +83,42 @@ function detectChaptersByHeadings(fullText) {
 // onProgress(0..1) optional für eine Fortschrittsanzeige.
 export async function parsePdfFile(file, onProgress) {
   const buffer = await file.arrayBuffer()
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
-  const numPages = doc.numPages
-
-  const pageTexts = []
-  for (let i = 1; i <= numPages; i++) {
-    const page = await doc.getPage(i)
-    pageTexts.push(await getPageText(page))
-    if (onProgress) onProgress(i / numPages)
-  }
-  const fullText = pageTexts.join('\n\n').trim()
-
-  let chapters = null
+  // Frischer Worker pro Parse – sauber und ohne Zustandsprobleme.
+  const worker = new pdfjsLib.PDFWorker({ port: new PdfjsWorker() })
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker }).promise
   try {
-    const outline = await doc.getOutline()
-    if (outline && outline.length) chapters = await resolveOutlineToChapters(doc, outline, pageTexts)
-  } catch {
-    chapters = null
-  }
-  if (!chapters) chapters = detectChaptersByHeadings(fullText)
-  if (!chapters) chapters = [{ title: 'Gesamtes Dokument', text: fullText, page: 1 }]
+    const numPages = doc.numPages
 
-  let title = ''
-  try {
-    const meta = await doc.getMetadata()
-    title = (meta?.info?.Title || '').trim()
-  } catch {
-    title = ''
-  }
-  if (!title) title = file.name.replace(/\.pdf$/i, '')
+    const pageTexts = []
+    for (let i = 1; i <= numPages; i++) {
+      const page = await doc.getPage(i)
+      pageTexts.push(await getPageText(page))
+      if (onProgress) onProgress(i / numPages)
+    }
+    const fullText = pageTexts.join('\n\n').trim()
 
-  return { title, numPages, chapters, fullText, charCount: fullText.length }
+    let chapters = null
+    try {
+      const outline = await doc.getOutline()
+      if (outline && outline.length) chapters = await resolveOutlineToChapters(doc, outline, pageTexts)
+    } catch {
+      chapters = null
+    }
+    if (!chapters) chapters = detectChaptersByHeadings(fullText)
+    if (!chapters) chapters = [{ title: 'Gesamtes Dokument', text: fullText, page: 1 }]
+
+    let title = ''
+    try {
+      const meta = await doc.getMetadata()
+      title = (meta?.info?.Title || '').trim()
+    } catch {
+      title = ''
+    }
+    if (!title) title = file.name.replace(/\.pdf$/i, '')
+
+    return { title, numPages, chapters, fullText, charCount: fullText.length }
+  } finally {
+    await doc.destroy().catch(() => {})
+    worker.destroy()
+  }
 }
