@@ -83,6 +83,17 @@ export async function summarize(doc) {
   return (await r.json()).summary
 }
 
+export async function summarizeChapter(title, text) {
+  const r = await fetch('/api/summarize-chapter', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title, text: clip(text, 40000) }),
+  })
+  handle401(r)
+  if (!r.ok) throw new Error((await r.json()).error || 'Kapitel-Zusammenfassung fehlgeschlagen')
+  return (await r.json()).summary
+}
+
 export async function getQuiz(doc, count = 5) {
   const r = await fetch('/api/quiz', {
     method: 'POST',

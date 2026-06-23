@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTTS } from './useTTS.js'
+import { useSpeech } from './useSpeech.js'
+import { summarizeChapter, streamChat } from './api.js'
+import { stripMarkdown } from './textUtils.js'
 
 // Vorlese-Overlay: liest das aktuelle Kapitel kapitelweise vor.
 // - stoppt die Sprachausgabe zuverlässig beim Schließen
 // - merkt sich die Position (Kapitel + Satz) über onProgress
-// - kann an gespeicherter Stelle weiterlesen (startSentence)
+// - kann das Kapitel zusammenfassen und die Zusammenfassung vorlesen
+// - Sprach-Diskussion: Frage zum Kapitel per Mikrofon, Antwort wird vorgelesen
 export default function Reader({
   chapters,
   startIndex,
@@ -14,35 +18,51 @@ export default function Reader({
   onProgress,
 }) {
   const tts = useTTS()
+  const speech = useSpeech('de-DE')
   const [index, setIndex] = useState(startIndex)
   const [finished, setFinished] = useState(false)
+
+  // Kapitel-Zusammenfassung
+  const [chapterSummary, setChapterSummary] = useState('')
+  const [summarizing, setSummarizing] = useState(false)
+
+  // Sprach-Diskussion
+  const [vqQuestion, setVqQuestion] = useState('')
+  const [vqAnswer, setVqAnswer] = useState('')
+  const [vqBusy, setVqBusy] = useState(false)
+  const [aiError, setAiError] = useState('')
+
   const bodyRef = useRef(null)
   const spokenRef = useRef(null)
   const resumeRef = useRef(startSentence || 0)
 
   const chapter = chapters[index]
+  const chapterContext = chapter ? `Aktuelles Kapitel: ${chapter.title}\n\n${chapter.text}` : ''
 
-  // Sauberes Schließen: Audio stoppen, dann Overlay zu.
   const handleClose = () => {
     if (onProgress) onProgress(index, Math.max(0, tts.sentenceIndex))
+    speech.abort()
     tts.stop()
     onClose()
   }
 
-  // Beim Kapitelwechsel: Sprachausgabe stoppen.
+  // Beim Kapitelwechsel: alles zurücksetzen.
   useEffect(() => {
     setFinished(false)
+    setChapterSummary('')
+    setVqQuestion('')
+    setVqAnswer('')
+    setAiError('')
+    speech.abort()
     tts.stop()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index])
 
-  // Position laufend melden (zum Speichern des Fortschritts).
   useEffect(() => {
     if (onProgress) onProgress(index, Math.max(0, tts.sentenceIndex))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, tts.sentenceIndex])
 
-  // Auto-Scroll zum gerade gesprochenen Satz.
   useEffect(() => {
     if (spokenRef.current) {
       spokenRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
@@ -53,7 +73,7 @@ export default function Reader({
     if (!chapter) return
     setFinished(false)
     const from = resumeRef.current
-    resumeRef.current = 0 // nur beim ersten Mal ab gespeicherter Stelle
+    resumeRef.current = 0
     tts.speak(chapter.text, () => setFinished(true), from)
   }
 
@@ -62,6 +82,58 @@ export default function Reader({
     tts.stop()
     resumeRef.current = 0
     setIndex(i)
+  }
+
+  // KI: Kapitel zusammenfassen und vorlesen.
+  const summarizeNow = async () => {
+    if (!chapter || summarizing) return
+    tts.stop()
+    setAiError('')
+    setSummarizing(true)
+    try {
+      const s = await summarizeChapter(chapter.title, chapter.text)
+      setChapterSummary(s)
+      tts.speak(stripMarkdown(s))
+    } catch (e) {
+      setAiError(e.message)
+    } finally {
+      setSummarizing(false)
+    }
+  }
+
+  // KI: Frage zum Kapitel (Text), Antwort streamen und vorlesen.
+  const askChapter = async (text) => {
+    if (!text || vqBusy) return
+    tts.stop()
+    setAiError('')
+    setVqQuestion(text)
+    setVqAnswer('')
+    setVqBusy(true)
+    try {
+      let acc = ''
+      await streamChat(
+        { context: chapterContext, messages: [{ role: 'user', content: text }], mode: 'discuss' },
+        (chunk) => {
+          acc += chunk
+          setVqAnswer(acc)
+        }
+      )
+      tts.speak(stripMarkdown(acc))
+    } catch (e) {
+      setAiError(e.message)
+    } finally {
+      setVqBusy(false)
+    }
+  }
+
+  // Mikrofon: zuhören und Frage stellen.
+  const toggleMic = () => {
+    if (speech.listening) {
+      speech.stop()
+    } else {
+      tts.stop()
+      speech.start((text) => askChapter(text))
+    }
   }
 
   const hasNext = index < chapters.length - 1
@@ -82,6 +154,50 @@ export default function Reader({
         </div>
 
         <div className="reader-body" ref={bodyRef}>
+          {/* KI-Aktionen */}
+          <div className="ai-actions">
+            <button className="btn" onClick={summarizeNow} disabled={summarizing || !tts.supported}>
+              {summarizing ? <><span className="spinner" /> Fasse zusammen …</> : '✨ Kapitel zusammenfassen & vorlesen'}
+            </button>
+            {speech.supported && (
+              <button
+                className={'btn mic' + (speech.listening ? ' listening' : '')}
+                onClick={toggleMic}
+                disabled={vqBusy}
+                title="Frage zum Kapitel per Sprache stellen"
+              >
+                {speech.listening ? '● Höre zu … (zum Stoppen klicken)' : '🎤 Frage per Sprache'}
+              </button>
+            )}
+          </div>
+
+          {speech.listening && speech.interim && (
+            <div className="interim">„{speech.interim}"</div>
+          )}
+          {aiError && <div className="banner" style={{ marginBottom: 12 }}>{aiError}</div>}
+
+          {chapterSummary && (
+            <div className="ai-panel">
+              <div className="ai-panel-head">
+                📝 Kapitel-Zusammenfassung
+                <button className="btn ghost sm" onClick={() => tts.speak(stripMarkdown(chapterSummary))}>🔊 erneut vorlesen</button>
+              </div>
+              <div className="ai-panel-body">{chapterSummary}</div>
+            </div>
+          )}
+
+          {(vqQuestion || vqAnswer) && (
+            <div className="ai-panel">
+              <div className="ai-panel-head">
+                💬 {vqQuestion}
+                {vqAnswer && !vqBusy && (
+                  <button className="btn ghost sm" onClick={() => tts.speak(stripMarkdown(vqAnswer))}>🔊 erneut vorlesen</button>
+                )}
+              </div>
+              <div className="ai-panel-body">{vqAnswer || <span className="spinner" />}</div>
+            </div>
+          )}
+
           {!tts.supported ? (
             <div className="banner">
               Dein Browser unterstützt die Sprachausgabe (Web Speech API) nicht.
@@ -109,19 +225,14 @@ export default function Reader({
             <div className="next-prompt">
               <span className="q">✅ Kapitel vorgelesen. Weiter zum nächsten Kapitel oder Fragen?</span>
               {hasNext && (
-                <button className="btn primary" onClick={() => goTo(index + 1)}>
-                  ▶ Nächstes Kapitel
-                </button>
+                <button className="btn primary" onClick={() => goTo(index + 1)}>▶ Nächstes Kapitel</button>
               )}
-              <button className="btn" onClick={() => onAskQuestions(index)}>
-                💬 Fragen stellen
-              </button>
+              <button className="btn" onClick={() => onAskQuestions(index)}>💬 Im Chat fragen</button>
               <button className="btn ghost" onClick={startReading}>↻ Nochmal</button>
             </div>
           ) : (
             <div className="controls-row">
               <button className="iconbtn" onClick={() => goTo(index - 1)} disabled={index === 0} title="Vorheriges Kapitel">⏮</button>
-
               {!tts.speaking ? (
                 <button className="iconbtn big" onClick={startReading} disabled={!chapter || !tts.supported} title={hasResume ? 'Weiterlesen' : 'Vorlesen'}>▶</button>
               ) : tts.paused ? (
@@ -129,20 +240,14 @@ export default function Reader({
               ) : (
                 <button className="iconbtn big" onClick={tts.pause} title="Pause">⏸</button>
               )}
-
-              {tts.speaking && (
-                <button className="iconbtn" onClick={tts.stop} title="Stopp">⏹</button>
-              )}
-
+              {tts.speaking && <button className="iconbtn" onClick={tts.stop} title="Stopp">⏹</button>}
               <button className="iconbtn" onClick={() => goTo(index + 1)} disabled={!hasNext} title="Nächstes Kapitel">⏭</button>
-
               <span className="grow" />
-              {hasResume && <span style={{ fontSize: 12, color: 'var(--muted)' }}>↩ liest ab gespeicherter Stelle</span>}
-              <button className="btn" onClick={() => onAskQuestions(index)}>💬 Fragen</button>
+              {hasResume && <span style={{ fontSize: 12, color: 'var(--muted)' }}>↩ ab gespeicherter Stelle</span>}
+              <button className="btn" onClick={() => onAskQuestions(index)}>💬 Chat</button>
             </div>
           )}
 
-          {/* Stimm-Einstellungen */}
           <div className="voice-row">
             <span>🎙 Stimme:</span>
             <select value={tts.voiceURI || ''} onChange={(e) => tts.setVoiceURI(e.target.value)}>
@@ -152,10 +257,8 @@ export default function Reader({
                 </option>
               ))}
             </select>
-
             <span>Tempo {tts.rate.toFixed(1)}×</span>
             <input type="range" min="0.6" max="1.6" step="0.1" value={tts.rate} onChange={(e) => tts.setRate(Number(e.target.value))} />
-
             <span>Tonhöhe</span>
             <input type="range" min="0.6" max="1.4" step="0.1" value={tts.pitch} onChange={(e) => tts.setPitch(Number(e.target.value))} />
           </div>

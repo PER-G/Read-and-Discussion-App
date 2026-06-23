@@ -11,6 +11,9 @@ import {
 import Reader from './Reader.jsx'
 import Login from './Login.jsx'
 import Library from './Library.jsx'
+import { useTTS } from './useTTS.js'
+import { useSpeech } from './useSpeech.js'
+import { stripMarkdown } from './textUtils.js'
 
 // Sehr leichter Markdown-Renderer (fett, Überschriften, Listen, Absätze).
 function renderMarkdown(md) {
@@ -84,6 +87,10 @@ export default function App() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const messagesRef = useRef(null)
+
+  // Sprachausgabe + Spracheingabe für den Chat
+  const chatTts = useTTS()
+  const chatSpeech = useSpeech('de-DE')
 
   useEffect(() => {
     checkHealth().then(setHealth).catch(() => setHealth({ ok: false }))
@@ -250,7 +257,7 @@ export default function App() {
     return doc.fullText
   }
 
-  async function send(textArg, modeArg, baseMessages) {
+  async function send(textArg, modeArg, baseMessages, opts = {}) {
     const text = (textArg ?? input).trim()
     if (!text || !doc || busy) return
     const useMode = modeArg ?? mode
@@ -274,6 +281,8 @@ export default function App() {
           })
         }
       )
+      // Antwort vorlesen, wenn die Frage per Sprache kam.
+      if (opts.speak && acc) chatTts.speak(stripMarkdown(acc))
     } catch (e) {
       if (handleAuthErr(e)) return
       setMessages((m) => {
@@ -284,6 +293,22 @@ export default function App() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // Mikrofon im Chat: zuhören, Frage senden, Antwort vorlesen.
+  function toggleChatMic() {
+    if (chatSpeech.listening) {
+      chatSpeech.stop()
+    } else {
+      chatTts.stop()
+      chatSpeech.start((text) => send(text, undefined, undefined, { speak: true }))
+    }
+  }
+
+  // Eine Assistenten-Nachricht vorlesen / stoppen.
+  function speakMessage(content) {
+    if (chatTts.speaking) chatTts.stop()
+    else chatTts.speak(stripMarkdown(content))
   }
 
   function openReader(start = 0) {
@@ -401,16 +426,49 @@ export default function App() {
               ) : (
                 messages.map((m, i) => (
                   <div key={i} className={'msg ' + m.role}>
-                    {m.role === 'assistant' ? (m.content ? renderMarkdown(m.content) : <span className="spinner" />) : m.content}
+                    {m.role === 'assistant' ? (
+                      m.content ? (
+                        <>
+                          {renderMarkdown(m.content)}
+                          {chatTts.supported && (
+                            <button
+                              className="speak-btn"
+                              title="Antwort vorlesen"
+                              onClick={() => speakMessage(m.content)}
+                            >
+                              {chatTts.speaking ? '⏹ Stopp' : '🔊 Vorlesen'}
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="spinner" />
+                      )
+                    ) : (
+                      m.content
+                    )}
                   </div>
                 ))
               )}
             </div>
 
             <div className="composer">
+              {chatSpeech.supported && (
+                <button
+                  className={'iconbtn mic-btn' + (chatSpeech.listening ? ' listening' : '')}
+                  onClick={toggleChatMic}
+                  disabled={busy}
+                  title={chatSpeech.listening ? 'Höre zu … (zum Stoppen klicken)' : 'Frage per Sprache stellen'}
+                >
+                  {chatSpeech.listening ? '●' : '🎤'}
+                </button>
+              )}
               <textarea
                 rows={1}
-                placeholder={mode === 'quiz' ? 'Deine Antwort …' : 'Frage zum Dokument stellen …'}
+                placeholder={
+                  chatSpeech.listening
+                    ? (chatSpeech.interim ? '„' + chatSpeech.interim + '"' : 'Höre zu …')
+                    : mode === 'quiz' ? 'Deine Antwort …' : 'Frage zum Dokument stellen …'
+                }
                 value={input}
                 disabled={busy}
                 onChange={(e) => setInput(e.target.value)}

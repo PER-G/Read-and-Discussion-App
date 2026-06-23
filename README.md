@@ -10,6 +10,9 @@ lassen → **kapitelweise vorlesen** (Browser-Stimme) → mit der KI **diskutier
 - 🔊 **Vorlesen** Kapitel für Kapitel mit der Browser-Sprachausgabe
   - Stimme wechselbar, Tempo & Tonhöhe einstellbar
   - Nach jedem Kapitel: *„Weiter zum nächsten Kapitel oder Fragen?"*
+  - **✨ Kapitel zusammenfassen & vorlesen**: KI fasst das offene Kapitel kurz zusammen und liest es vor
+- 🎤 **Sprachsteuerung**: Fragen per Mikrofon stellen (Chat & Vorlese-Fenster), Antworten werden
+  vorgelesen (Spracherkennung in Chrome/Edge, auch mobil)
 - 💬 **Diskussion**: Fragen an die KI stellen (mit Dokumentkontext, gestreamt)
 - ❓ **Frage-Runde**: die KI fragt **dich** ab und gibt Feedback — oder erzeugt eine Liste Übungsfragen
 - 📚 **Projekte & Hauptmenü**: hochgeladene PDFs werden im Browser (IndexedDB) gespeichert,
