@@ -50,28 +50,32 @@ npm run dev
   natürlichere (Online-)Stimmen als Chrome.
 - Sehr große PDFs werden für die KI-Aufrufe automatisch gekürzt, um Token-Limits einzuhalten.
 
-## Als Web-App veröffentlichen (Render.com, kostenlos)
+## Als Web-App veröffentlichen
 
-Die App braucht einen Node-Server (für den geheimen API-Key), daher funktioniert
-reines GitHub Pages **nicht**. Empfohlen: **Render.com** (Free-Tier).
+Das PDF wird **im Browser** geparst; der Server ist ein zustandsloser Claude-Proxy.
+Dadurch läuft die App sowohl auf **Vercel** (serverless) als auch auf **Render** /
+einem eigenen Node-Server. Reines GitHub Pages reicht **nicht** (es braucht den
+Server für den geheimen API-Key).
 
+### Variante A: Vercel (empfohlen, wenn du ein Vercel-Konto hast)
+1. Auf https://vercel.com → **Add New… → Project** → Repo
+   `PER-G/Read-and-Discussion-App` importieren.
+2. Vercel erkennt Vite automatisch. Unter **Environment Variables** eintragen:
+   - `ANTHROPIC_API_KEY` = dein Key (Secret)
+   - optional `CLAUDE_MODEL` = `claude-sonnet-4-6`
+3. **Deploy** klicken. Die `vercel.json` richtet die API-Function automatisch ein.
+
+> Hinweis: Der API-Aufruf läuft als Serverless-Function (`api/index.js`) mit bis zu
+> 60 s Laufzeit (in `vercel.json` gesetzt).
+
+### Variante B: Render.com (kostenlos)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PER-G/Read-and-Discussion-App)
 
-Mit dem Button oben: anmelden, GitHub verbinden, beim Schritt **Environment**
-den `ANTHROPIC_API_KEY` eintragen → **Deploy**. Fertig.
+Render liest `render.yaml` automatisch. Beim Schritt **Environment** den
+`ANTHROPIC_API_KEY` als Secret eintragen → **Apply**.
 
-Oder manuell:
-
-1. Code zu GitHub pushen (siehe Repo `PER-G/Read-and-Discussion-App`).
-2. Auf https://render.com mit GitHub anmelden → **New → Blueprint**.
-3. Repo auswählen — Render liest `render.yaml` automatisch.
-4. Bei **Environment Variables** den `ANTHROPIC_API_KEY` als Secret eintragen
-   (steht NICHT im Repo!).
-5. **Apply / Deploy** klicken. Nach ein paar Minuten ist die App unter einer
-   `https://...onrender.com`-Adresse erreichbar.
-
-> Produktion: `npm run build` erzeugt `dist/`, und `npm start` startet den
-> Express-Server, der Frontend **und** API über einen Port ausliefert.
+> Produktion lokal testen: `npm run build` erzeugt `dist/`, und `npm start` startet
+> den Express-Server, der Frontend **und** API über einen Port ausliefert.
 
 ## Spätere Ausbaustufen (optional)
 - Hochwertigere Stimmen via OpenAI-TTS oder ElevenLabs

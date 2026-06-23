@@ -1,11 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import {
-  checkHealth,
-  uploadPdf,
-  summarize,
-  getQuiz,
-  streamChat,
-} from './api.js'
+import { checkHealth, summarize, getQuiz, streamChat } from './api.js'
+import { parsePdfFile } from './pdfParse.js'
 import Reader from './Reader.jsx'
 
 // Sehr leichter Markdown-Renderer (fett, Überschriften, Listen, Absätze).
@@ -49,8 +44,9 @@ function renderMarkdown(md) {
 
 export default function App() {
   const [health, setHealth] = useState(null)
-  const [doc, setDoc] = useState(null) // {id, title, numPages, chapters[]}
+  const [doc, setDoc] = useState(null) // { title, numPages, charCount, chapters[], fullText }
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const [drag, setDrag] = useState(false)
 
@@ -67,7 +63,7 @@ export default function App() {
 
   // Chat
   const [mode, setMode] = useState('discuss') // 'discuss' | 'quiz'
-  const [messages, setMessages] = useState([]) // {role, content}
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const messagesRef = useRef(null)
@@ -91,27 +87,27 @@ export default function App() {
     }
     setError('')
     setUploading(true)
+    setProgress(0)
     setSummary('')
     setQuiz([])
     setMessages([])
     try {
-      const result = await uploadPdf(file)
-      setDoc(result)
+      const parsed = await parsePdfFile(file, setProgress)
+      setDoc(parsed)
       setActiveChapter(0)
-      // Automatisch zusammenfassen
-      runSummary(result.id)
+      runSummary(parsed) // automatisch zusammenfassen
     } catch (e) {
-      setError(e.message)
+      console.error(e)
+      setError('PDF konnte nicht gelesen werden: ' + e.message)
     } finally {
       setUploading(false)
     }
   }
 
-  async function runSummary(id) {
+  async function runSummary(d) {
     setSummarizing(true)
     try {
-      const s = await summarize(id)
-      setSummary(s)
+      setSummary(await summarize(d))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -123,8 +119,7 @@ export default function App() {
     if (!doc) return
     setQuizLoading(true)
     try {
-      const q = await getQuiz(doc.id, 5)
-      setQuiz(q)
+      setQuiz(await getQuiz(doc, 5))
     } catch (e) {
       setError(e.message)
     } finally {
@@ -132,11 +127,21 @@ export default function App() {
     }
   }
 
-  // Quiz-Modus starten: KI stellt die erste Frage.
   async function startQuizChat() {
+    if (!doc) return
     setMode('quiz')
     setMessages([])
     await send('Bitte stelle mir deine erste Frage zum Dokument.', 'quiz', [])
+  }
+
+  // Kontext für die KI zusammenbauen (aktuelles Kapitel im Fokus + Gesamtdokument).
+  function buildContext() {
+    if (!doc) return ''
+    const c = doc.chapters[activeChapter]
+    if (c) {
+      return `Aktuelles Kapitel: ${c.title}\n\n${c.text}\n\n---\nWeiterer Dokumentkontext:\n${doc.fullText}`
+    }
+    return doc.fullText
   }
 
   async function send(textArg, modeArg, baseMessages) {
@@ -145,8 +150,7 @@ export default function App() {
     const useMode = modeArg ?? mode
     const base = baseMessages ?? messages
 
-    const userMsg = { role: 'user', content: text }
-    const next = [...base, userMsg]
+    const next = [...base, { role: 'user', content: text }]
     setMessages([...next, { role: 'assistant', content: '' }])
     setInput('')
     setBusy(true)
@@ -154,12 +158,7 @@ export default function App() {
     try {
       let acc = ''
       await streamChat(
-        {
-          id: doc.id,
-          messages: next,
-          mode: useMode,
-          chapterIndex: readerOpen ? activeChapter : undefined,
-        },
+        { context: buildContext(), messages: next, mode: useMode },
         (chunk) => {
           acc += chunk
           setMessages((m) => {
@@ -172,10 +171,7 @@ export default function App() {
     } catch (e) {
       setMessages((m) => {
         const copy = m.slice()
-        copy[copy.length - 1] = {
-          role: 'assistant',
-          content: '⚠ Fehler: ' + e.message,
-        }
+        copy[copy.length - 1] = { role: 'assistant', content: '⚠ Fehler: ' + e.message }
         return copy
       })
     } finally {
@@ -217,9 +213,8 @@ export default function App() {
           <div className="panel-body">
             {!keyOk && (
               <div className="banner">
-                Kein <b>ANTHROPIC_API_KEY</b> gefunden. Lege im Projektordner eine
-                Datei <code>.env</code> an (Vorlage: <code>.env.example</code>) und starte
-                den Server neu.
+                Kein <b>ANTHROPIC_API_KEY</b> auf dem Server gefunden. Lokal: <code>.env</code> anlegen.
+                Auf Vercel/Render: als Umgebungsvariable (Secret) setzen.
               </div>
             )}
 
@@ -239,7 +234,12 @@ export default function App() {
               style={{ cursor: 'pointer' }}
             >
               {uploading ? (
-                <><span className="spinner" /> <div style={{ marginTop: 8 }}>PDF wird verarbeitet …</div></>
+                <>
+                  <span className="spinner" />
+                  <div style={{ marginTop: 8 }}>
+                    PDF wird gelesen … {Math.round(progress * 100)}%
+                  </div>
+                </>
               ) : (
                 <>
                   <strong>+ PDF hinzufügen</strong>
@@ -268,14 +268,14 @@ export default function App() {
                 </div>
 
                 <div className="chapter-list">
-                  {doc.chapters.map((c) => (
+                  {doc.chapters.map((c, i) => (
                     <button
-                      key={c.index}
-                      className={'chapter-item' + (c.index === activeChapter ? ' active' : '')}
-                      onClick={() => openReader(c.index)}
+                      key={i}
+                      className={'chapter-item' + (i === activeChapter ? ' active' : '')}
+                      onClick={() => openReader(i)}
                       title="Dieses Kapitel vorlesen"
                     >
-                      <span className="num">{c.index + 1}</span>
+                      <span className="num">{i + 1}</span>
                       <span className="ct">{c.title}</span>
                     </button>
                   ))}
@@ -314,9 +314,11 @@ export default function App() {
                 <div className="empty-state">
                   <div style={{ fontSize: 40 }}>📚</div>
                   <h2>Willkommen!</h2>
-                  <p>Lade links ein PDF hoch (z. B. deine Bachelorthesis).<br />
+                  <p>
+                    Lade links ein PDF hoch (z. B. deine Bachelorthesis).<br />
                     Es wird automatisch zusammengefasst, du kannst es dir kapitelweise
-                    vorlesen lassen und mit der KI darüber diskutieren.</p>
+                    vorlesen lassen und mit der KI darüber diskutieren.
+                  </p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="empty-state">
@@ -398,7 +400,7 @@ export default function App() {
                   ) : (
                     <>
                       <p>Noch keine Zusammenfassung.</p>
-                      <button className="btn full" onClick={() => runSummary(doc.id)}>
+                      <button className="btn full" onClick={() => runSummary(doc)}>
                         Zusammenfassung erstellen
                       </button>
                     </>
@@ -433,9 +435,9 @@ export default function App() {
 
       {readerOpen && doc && (
         <Reader
-          docId={doc.id}
           chapters={doc.chapters}
           startIndex={readerStart}
+          onActiveChange={setActiveChapter}
           onClose={() => setReaderOpen(false)}
           onAskQuestions={(chapterIdx) => {
             setActiveChapter(chapterIdx)

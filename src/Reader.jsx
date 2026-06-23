@@ -1,41 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { getChapter } from './api.js'
 import { useTTS } from './useTTS.js'
 
 // Vorlese-Overlay: liest das aktuelle Kapitel kapitelweise vor.
 // Nach jedem Kapitel erscheint die Frage "Weiter oder Fragen?".
-export default function Reader({ docId, chapters, startIndex, onClose, onAskQuestions }) {
+export default function Reader({ chapters, startIndex, onClose, onAskQuestions, onActiveChange }) {
   const tts = useTTS()
   const [index, setIndex] = useState(startIndex)
-  const [chapter, setChapter] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [finished, setFinished] = useState(false)
   const bodyRef = useRef(null)
   const spokenRef = useRef(null)
 
-  // Kapitel laden, wenn sich der Index ändert.
+  const chapter = chapters[index]
+
+  // Beim Kapitelwechsel: Sprachausgabe stoppen, Eltern informieren.
   useEffect(() => {
-    let active = true
-    setLoading(true)
     setFinished(false)
     tts.stop()
-    getChapter(docId, index)
-      .then((c) => {
-        if (active) {
-          setChapter(c)
-          setLoading(false)
-        }
-      })
-      .catch(() => active && setLoading(false))
-    return () => {
-      active = false
-    }
+    if (onActiveChange) onActiveChange(index)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, index])
+  }, [index])
 
-  // Auto-Scroll zum aktuell gesprochenen Satz.
+  // Auto-Scroll zum gerade gesprochenen Satz.
   useEffect(() => {
-    if (spokenRef.current && bodyRef.current) {
+    if (spokenRef.current) {
       spokenRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }
   }, [tts.sentenceIndex])
@@ -59,7 +46,7 @@ export default function Reader({ docId, chapters, startIndex, onClose, onAskQues
       <div className="reader">
         <div className="reader-head">
           <div>
-            <div className="title">{chapter?.title || 'Lädt …'}</div>
+            <div className="title">{chapter?.title || 'Kapitel'}</div>
             <div className="sub">
               Kapitel {index + 1} von {chapters.length}
               {chapter?.page ? ` · ab Seite ${chapter.page}` : ''}
@@ -69,9 +56,7 @@ export default function Reader({ docId, chapters, startIndex, onClose, onAskQues
         </div>
 
         <div className="reader-body" ref={bodyRef}>
-          {loading ? (
-            <div className="empty-state"><span className="spinner" /> Kapitel wird geladen …</div>
-          ) : !tts.supported ? (
+          {!tts.supported ? (
             <div className="banner">
               Dein Browser unterstützt die Sprachausgabe (Web Speech API) nicht.
               Bitte nutze Chrome, Edge oder Safari.
@@ -133,10 +118,7 @@ export default function Reader({ docId, chapters, startIndex, onClose, onAskQues
           {/* Stimm-Einstellungen */}
           <div className="voice-row">
             <span>🎙 Stimme:</span>
-            <select
-              value={tts.voiceURI || ''}
-              onChange={(e) => tts.setVoiceURI(e.target.value)}
-            >
+            <select value={tts.voiceURI || ''} onChange={(e) => tts.setVoiceURI(e.target.value)}>
               {tts.voices.map((v) => (
                 <option key={v.voiceURI} value={v.voiceURI}>
                   {v.name} ({v.lang})
@@ -145,18 +127,10 @@ export default function Reader({ docId, chapters, startIndex, onClose, onAskQues
             </select>
 
             <span>Tempo {tts.rate.toFixed(1)}×</span>
-            <input
-              type="range" min="0.6" max="1.6" step="0.1"
-              value={tts.rate}
-              onChange={(e) => tts.setRate(Number(e.target.value))}
-            />
+            <input type="range" min="0.6" max="1.6" step="0.1" value={tts.rate} onChange={(e) => tts.setRate(Number(e.target.value))} />
 
             <span>Tonhöhe</span>
-            <input
-              type="range" min="0.6" max="1.4" step="0.1"
-              value={tts.pitch}
-              onChange={(e) => tts.setPitch(Number(e.target.value))}
-            />
+            <input type="range" min="0.6" max="1.4" step="0.1" value={tts.pitch} onChange={(e) => tts.setPitch(Number(e.target.value))} />
           </div>
         </div>
       </div>

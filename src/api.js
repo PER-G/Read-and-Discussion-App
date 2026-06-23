@@ -1,50 +1,47 @@
-// Kleine Helfer für die Backend-Aufrufe.
+// Backend-Aufrufe. Das PDF wird im Browser geparst (siehe pdfParse.js);
+// hier schicken wir nur noch Texte an den zustandslosen Claude-Proxy.
+
+// Text begrenzen, damit die Payload an die Serverless-Function klein bleibt.
+function clip(text, max) {
+  if (!text) return ''
+  return text.length <= max ? text : text.slice(0, max) + '\n\n[... gekürzt ...]'
+}
 
 export async function checkHealth() {
   const r = await fetch('/api/health')
   return r.json()
 }
 
-export async function uploadPdf(file) {
-  const form = new FormData()
-  form.append('file', file)
-  const r = await fetch('/api/upload', { method: 'POST', body: form })
-  if (!r.ok) throw new Error((await r.json()).error || 'Upload fehlgeschlagen')
-  return r.json()
-}
-
-export async function getChapter(id, index) {
-  const r = await fetch(`/api/document/${id}/chapter/${index}`)
-  if (!r.ok) throw new Error('Kapitel konnte nicht geladen werden')
-  return r.json()
-}
-
-export async function summarize(id) {
+export async function summarize(doc) {
   const r = await fetch('/api/summarize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
+    body: JSON.stringify({
+      title: doc.title,
+      chapterTitles: doc.chapters.map((c) => c.title),
+      fullText: clip(doc.fullText, 120000),
+    }),
   })
   if (!r.ok) throw new Error((await r.json()).error || 'Zusammenfassung fehlgeschlagen')
   return (await r.json()).summary
 }
 
-export async function getQuiz(id, count = 5) {
+export async function getQuiz(doc, count = 5) {
   const r = await fetch('/api/quiz', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, count }),
+    body: JSON.stringify({ fullText: clip(doc.fullText, 120000), count }),
   })
   if (!r.ok) throw new Error((await r.json()).error || 'Quiz fehlgeschlagen')
   return (await r.json()).questions
 }
 
-// Chat-Stream: ruft onChunk(text) für jedes Textstück auf.
-export async function streamChat({ id, messages, mode, chapterIndex }, onChunk) {
+// Chat-Stream. context = relevanter Dokumenttext; onChunk(text) pro Textstück.
+export async function streamChat({ context, messages, mode }, onChunk) {
   const r = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, messages, mode, chapterIndex }),
+    body: JSON.stringify({ context: clip(context, 120000), messages, mode }),
   })
   if (!r.ok) throw new Error((await r.json()).error || 'Chat fehlgeschlagen')
 
@@ -56,10 +53,10 @@ export async function streamChat({ id, messages, mode, chapterIndex }, onChunk) 
     const { value, done } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) {
-      const m = line.match(/^data: (.*)$/m)
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() || ''
+    for (const part of parts) {
+      const m = part.match(/^data: (.*)$/m)
       if (!m) continue
       const payload = m[1]
       if (payload === '[DONE]') return
